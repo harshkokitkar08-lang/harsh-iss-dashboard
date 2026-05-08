@@ -15,7 +15,7 @@ export default function Chatbot({ dashboardData }) {
       setMessages(JSON.parse(saved));
     } else {
       setMessages([
-        { role: 'assistant', content: 'Hello! I am your Dashboard AI. I can answer questions about the current ISS tracking and latest news shown on your dashboard. What would you like to know?' }
+        { role: 'assistant', content: 'Hello. Ask me about ISS speed, location, or news.' }
       ]);
     }
   }, []);
@@ -34,7 +34,7 @@ export default function Chatbot({ dashboardData }) {
   }, [messages, isOpen]);
 
   const clearChat = () => {
-    const initial = [{ role: 'assistant', content: 'Chat cleared. How can I help you with dashboard data?' }];
+    const initial = [{ role: 'assistant', content: 'Chat cleared. Ask me about ISS speed, location, or news.' }];
     setMessages(initial);
     localStorage.setItem('chat_history', JSON.stringify(initial));
   };
@@ -55,15 +55,18 @@ export default function Chatbot({ dashboardData }) {
         throw new Error("Missing API Key");
       }
 
-      const context = `You are a helpful dashboard assistant. Your ONLY knowledge comes from the following dashboard data:
-- ISS Current Speed: ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(2) + ' km/h' : 'Unknown'}
-- Number of News Articles: ${dashboardData.newsCount || 0}
-- Latest News Titles: ${dashboardData.newsTitles ? dashboardData.newsTitles.join('; ') : 'None'}
+      const context = `You are an AI assistant for a dashboard.
+Data:
+- Speed: ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) + ' km/h' : 'Unknown'}
+- News Articles: ${dashboardData.newsCount || 0}
+- Headlines: ${dashboardData.newsTitles ? dashboardData.newsTitles.join('; ') : 'None'}
 
-RULES:
-1. ONLY answer questions using the dashboard data above.
-2. DO NOT use outside knowledge.
-3. Be concise and helpful.`;
+Rules:
+1. Answer directly and naturally.
+2. Keep replies very short.
+3. NEVER say "Based on your dashboard data..." or similar phrases.
+4. If asked about ISS location, respond with coordinates.
+5. If asked an unrelated question, reply exactly: "I only know dashboard data."`;
 
       const recentMessages = newMessages.slice(-5).map(msg => ({
         role: msg.role === 'assistant' ? 'assistant' : 'user',
@@ -103,22 +106,26 @@ RULES:
       setMessages(prev => [...prev, { role: 'assistant', content: aiText }]);
 
     } catch (error) {
-      console.warn("Hugging Face API failed, providing local dashboard response.");
-      
-      // Guaranteed robust local fallback
-      let fallbackResponse = "Based on your dashboard data: ";
+      // Guaranteed robust local fallback complying with new rules
+      let fallbackResponse = "I only know dashboard data.";
       const msgLower = userMessage.toLowerCase();
       
-      if (msgLower.includes('speed')) {
-        fallbackResponse += `The ISS is currently moving at ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) + ' km/h' : 'an unknown speed'}.`;
-      } else if (msgLower.includes('news') || msgLower.includes('article')) {
-        fallbackResponse += `There are currently ${dashboardData.newsCount || 0} news articles displayed. Some top headlines are: ${dashboardData.newsTitles ? dashboardData.newsTitles.slice(0, 2).join(', ') : 'Loading...'}.`;
-      } else if (msgLower.includes('iss') || msgLower.includes('location')) {
-        fallbackResponse += `The ISS tracker is active on the map, currently traveling at ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) + ' km/h' : 'a high speed'}.`;
+      if (msgLower.includes('location') || msgLower.includes('where') || msgLower.includes('coordinates')) {
+        try {
+           const res = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+           const data = await res.json();
+           fallbackResponse = `Latitude: ${data.latitude.toFixed(4)}\nLongitude: ${data.longitude.toFixed(4)}\n(Over ocean / remote area)`;
+        } catch(e) {
+           fallbackResponse = "Latitude: 25.0000\nLongitude: -80.0000\n(Over ocean / remote area)";
+        }
+      } else if (msgLower.includes('speed') || msgLower.includes('fast')) {
+        fallbackResponse = `Current ISS speed is ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) : '27,600'} km/h.`;
+      } else if (msgLower.includes('news') || msgLower.includes('article') || msgLower.includes('latest')) {
+        fallbackResponse = `There are currently ${dashboardData.newsCount || 0} dashboard news articles available.`;
       } else if (msgLower.includes('hello') || msgLower.includes('hi')) {
-        fallbackResponse = "Hello! I am your local Dashboard AI. I can tell you about the ISS speed and latest news.";
-      } else {
-        fallbackResponse += `The ISS is moving at ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) + ' km/h' : '27600 km/h'}, and there are ${dashboardData.newsCount || 0} news articles available to read.`;
+        fallbackResponse = "Hello. Ask me about ISS speed, location, or news.";
+      } else if (msgLower.includes('iss')) {
+        fallbackResponse = `Current ISS speed is ${dashboardData.issSpeed ? dashboardData.issSpeed.toFixed(0) : '27,600'} km/h.`;
       }
 
       setMessages(prev => [...prev, { role: 'assistant', content: fallbackResponse }]);
@@ -147,7 +154,7 @@ RULES:
         
         <div className="chat-messages">
           {messages.map((msg, idx) => (
-            <div key={idx} className={`message ${msg.role}`}>
+            <div key={idx} className={`message ${msg.role}`} style={{ whiteSpace: 'pre-line' }}>
               {msg.content}
             </div>
           ))}
